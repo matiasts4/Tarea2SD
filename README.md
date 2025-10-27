@@ -1,4 +1,4 @@
-# Tarea1SD - Sistemas Distribuidos
+# Tarea2SD - Sistemas Distribuidos
 
 ## Tarea 1: Sistema de Consultas con Caché (Arquitectura Síncrona)
 ## Tarea 2: Pipeline Asíncrono con Kafka y Flink (Arquitectura Asíncrona)
@@ -293,5 +293,6 @@ Para cumplir con los requisitos del proyecto, debes realizar comparaciones exper
 ✅ **Tarea 2:** Pipeline asíncrono con Kafka y Flink operativo y verificado
 
 
-#   T a r e a 2 S D  
+#   T a r e a 2 S D 
+ 
  
