@@ -1,0 +1,156 @@
+# docker-compose.yml
+
+version: '3.8'
+
+# Las variables de entorno se cargan desde el archivo .env
+# Asegúrate de crear .env copiando .env.example y configurando tus valores
+
+services:
+  # Apache ZooKeeper (para Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # Apache Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+
+  # Servicio de Base de Datos PostgreSQL
+  db:
+    image: postgres:14-alpine
+    container_name: db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: yahoo_db
+
+    volumes:
+      # Este volumen asegura que los datos de la BD persistan aunque apaguemos los contenedores
+      - postgres_data:/var/lib/postgresql/data
+      # Este script se ejecuta la primera vez que la BD se crea para inicializar nuestra tabla
+      - ./storage-service/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d yahoo_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Servicio de Almacenamiento
+  storage-service:
+    build: ./storage-service
+    container_name: storage-service
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    ports:
+      - "8003:8000"
+    environment:
+      # La URL de la BD ahora apunta al nombre del servicio 'db'
+      DATABASE_URL: "postgresql://user:password@db/yahoo_db"
+      # Kafka consumer de respuestas validadas
+      KAFKA_ENABLED: "true"
+      KAFKA_BROKER: "kafka:9092"
+      VALIDATED_TOPIC: "validated-responses"
+      STORAGE_CONSUMER_GROUP: "storage-service"
+
+  # Servicio de Score y Generación de Respuestas
+  score-service:
+    build: ./score-service
+    container_name: score-service
+    restart: always
+    depends_on:
+      - storage-service
+      - kafka
+    ports:
+      - "8002:8000"
+    environment:
+      # Apunta al servicio 'storage-service' en el puerto 8000 (dentro de la red de Docker)
+      STORAGE_SERVICE_URL: "http://storage-service:8000/storage"
+      # Variables desde .env
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL_NAME: ${GEMINI_MODEL_NAME:-gemini-2.5-flash-lite}
+      # Kafka
+      KAFKA_ENABLED: "true"
+      KAFKA_BROKER: "kafka:9092"
+      REQUESTS_TOPIC: "questions"
+      GENERATED_TOPIC: "generated"
+      ERRORS_TOPIC: "errors"
+      SCORE_CONSUMER_GROUP: "score-service"
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+
+  # Servicio de Caché
+  cache-service:
+    build: ./cache-service
+    container_name: cache-service
+    restart: always
+    depends_on:
+      - score-service
+      - kafka
+    ports:
+      - "8001:8000"
+    environment:
+      SCORE_SERVICE_URL: "http://score-service:8000/score"
+      STORAGE_SERVICE_URL: "http://storage-service:8000" # URL para notificar hits
+      PIPELINE_MODE: "async"
+      KAFKA_BROKER: "kafka:9092"
+      REQUESTS_TOPIC: "questions"
+      # Variables configurables desde .env
+      CACHE_SIZE: ${CACHE_SIZE:-1500}
+      CACHE_POLICY: ${CACHE_POLICY:-LRU}
+      CACHE_TTL: ${CACHE_TTL:-0}
+
+  # Generador de Tráfico
+  traffic-generator:
+    build: ./traffic-generator
+    container_name: traffic-generator
+    # No necesita 'restart: always' porque es un script que corre y no un servidor
+    depends_on:
+      - cache-service
+    environment:
+      CACHE_SERVICE_URL: "http://cache-service:8000/query"
+      # Variables configurables desde .env
+      SLEEP_TIME: ${SLEEP_TIME:-1.5}
+      INITIAL_WAIT_SECONDS: ${INITIAL_WAIT_SECONDS:-10}
+    volumes:
+      # Montar la carpeta data del host para acceder al dataset
+      - ./data:/app/data:ro
+
+  # Procesador de calidad con PyFlink
+  flink-processor:
+    build: ./flink-processor
+    container_name: flink-processor
+    restart: always
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKER: "kafka:9092"
+      REQUESTS_TOPIC: "questions"
+      GENERATED_TOPIC: "generated"
+      VALIDATED_TOPIC: "validated-responses"
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.5}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+
+# Volumen nombrado para persistir los datos de PostgreSQL
+volumes:
+  postgres_data:

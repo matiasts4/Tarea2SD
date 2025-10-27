@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+SQLAlchemy
+psycopg2-binary
+kafka-python
