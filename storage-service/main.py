@@ -50,7 +50,8 @@ def insert_response(payload: dict):
         ON CONFLICT (question) DO UPDATE SET
             original_answer = EXCLUDED.original_answer,
             llm_answer = EXCLUDED.llm_answer,
-            score = EXCLUDED.score;
+            score = EXCLUDED.score,
+            updated_at = CURRENT_TIMESTAMP;
         """
     )
     with engine.begin() as connection:
@@ -61,16 +62,33 @@ def _kafka_consumer_loop():
     if not KafkaConsumer:
         print("kafka-python no está disponible; consumidor Kafka deshabilitado.")
         return
+    
+    # Retry logic para conectar a Kafka
+    max_retries = 10
+    retry_delay = 5
+    for attempt in range(max_retries):
+        try:
+            print(f"Storage Service: Intentando conectar a Kafka (intento {attempt + 1}/{max_retries})...")
+            consumer = KafkaConsumer(
+                VALIDATED_TOPIC,
+                bootstrap_servers=KAFKA_BROKER,
+                group_id=STORAGE_CONSUMER_GROUP,
+                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+                enable_auto_commit=True,
+                auto_offset_reset='earliest'
+            )
+            print(f"Storage Service: Consumidor Kafka conectado exitosamente a '{VALIDATED_TOPIC}' en {KAFKA_BROKER}")
+            break
+        except Exception as e:
+            print(f"Storage Service: Error conectando a Kafka (intento {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print(f"Storage Service: Reintentando en {retry_delay} segundos...")
+                time.sleep(retry_delay)
+            else:
+                print("Storage Service: No se pudo conectar a Kafka después de múltiples intentos.")
+                return
+    
     try:
-        consumer = KafkaConsumer(
-            VALIDATED_TOPIC,
-            bootstrap_servers=KAFKA_BROKER,
-            group_id=STORAGE_CONSUMER_GROUP,
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            enable_auto_commit=True,
-            auto_offset_reset='earliest'
-        )
-        print(f"Storage Service: Consumidor Kafka escuchando '{VALIDATED_TOPIC}' en {KAFKA_BROKER}")
         for message in consumer:
             payload = message.value
             question = payload.get("question")
@@ -83,7 +101,7 @@ def _kafka_consumer_loop():
             except Exception as e:
                 print(f"Error al persistir mensaje Kafka: {e}")
     except Exception as e:
-        print(f"Error inicializando consumidor Kafka en storage-service: {e}")
+        print(f"Error en loop consumidor Kafka: {e}")
 
 def start_kafka_consumer_async():
     if KAFKA_ENABLED:

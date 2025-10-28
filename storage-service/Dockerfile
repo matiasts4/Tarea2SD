@@ -15,5 +15,5 @@ COPY init.sql ./init.sql
 # 5. Exponer el puerto
 EXPOSE 8000
 
-# 6. Comando de inicio
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 6. Comando de inicio con Python unbuffered
+CMD ["python", "-u", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

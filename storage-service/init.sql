@@ -1,4 +1,4 @@
--- Usamos CREATE TABLE IF NOT EXISTS para evitar errores si la tabla ya fue creada.
+-- Crear tabla
 CREATE TABLE IF NOT EXISTS responses (
     id SERIAL PRIMARY KEY,
     question TEXT NOT NULL UNIQUE,
@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS responses (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Creamos un índice en la columna 'question' para acelerar las búsquedas.
+-- Crear índice
 CREATE INDEX IF NOT EXISTS idx_question ON responses (question);

@@ -10,12 +10,8 @@ RUN apt-get update && \
 # Create symbolic link for python
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
-# Install PyFlink
-RUN pip3 install apache-flink==1.18.0
-
-# Download Kafka SQL connector JAR
-RUN wget -P /opt/flink/lib/ \
-    https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
+# Install kafka-python instead of PyFlink (simpler and faster)
+RUN pip3 install kafka-python==2.0.2
 
 # Copy application code
 COPY main.py /opt/flink/main.py
@@ -23,8 +19,5 @@ COPY main.py /opt/flink/main.py
 # Set working directory
 WORKDIR /opt/flink
 
-# Set environment variables
-ENV PYFLINK_CLIENT_EXECUTABLE=python3
-
 # Run the application
-CMD ["python3", "main.py"]
+CMD ["python3", "-u", "main.py"]
